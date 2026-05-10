@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Zombie World - Вирус X-19 | Зомби видят + спавн по таймеру</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            box-sizing: border-box;
+        }
+        body {
+            background: radial-gradient(circle at 20% 30%, #0a0f1a, #03060c);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            box-shadow: 0 0 0 5px #3a2a1a, 0 0 0 12px #1f1509;
+            border-radius: 20px;
+            cursor: crosshair;
+        }
+        .menu-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .menu-panel {
+            background: #1e1508e6;
+            border: 3px solid #ffac4a;
+            border-radius: 50px;
+            padding: 35px 50px;
+            text-align: center;
+            box-shadow: 0 0 30px #ff6600aa;
+        }
+        .menu-panel h1 {
+            font-size: 52px;
+            color: #ff5533;
+            text-shadow: 4px 4px 0 #3a1a00;
+            letter-spacing: 5px;
+        }
+        .menu-btn {
+            background: #2e241a;
+            border: 2px solid #e09d32;
+            color: #ffddbb;
+            font-size: 26px;
+            font-weight: bold;
+            padding: 10px 35px;
+            margin: 15px;
+            border-radius: 60px;
+            cursor: pointer;
+            width: 240px;
+        }
+        .menu-btn:hover {
+            background: #e09d32;
+            color: #1a0f00;
+            transform: scale(1.04);
+        }
+        .hud {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            z-index: 200;
+            font-weight: bold;
+        }
+        .stat {
+            background: #000000aa;
+            backdrop-filter: blur(4px);
+            padding: 6px 18px;
+            border-radius: 40px;
+            border-left: 5px solid #ff8844;
+            color: #ffdd99;
+            font-size: 18px;
+        }
+        .menu-icon {
+            background: #aa4422aa;
+            pointer-events: auto;
+            cursor: pointer;
+        }
+        .flash {
+            position: fixed;
+            top:0; left:0;
+            width:100%; height:100%;
+            background: red;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 90;
+            transition: 0.08s;
+        }
+        /* предыстория */
+        .story-text {
+            position: fixed;
+            bottom: -80px;
+            left: 0;
+            right: 0;
+            background: #000000cc;
+            backdrop-filter: blur(12px);
+            color: #ffaa66;
+            text-align: center;
+            padding: 16px;
+            font-size: 18px;
+            font-weight: bold;
+            font-family: monospace;
+            z-index: 300;
+            transition: bottom 0.5s ease;
+            border-top: 2px solid #ff6633;
+            letter-spacing: 1px;
+            text-shadow: 2px 2px 0 #330000;
+        }
+        .story-text.show {
+            bottom: 0;
+        }
+    </style>
+</head>
+<body>
+<div id="menuOverlay" class="menu-overlay">
+    <div class="menu-panel">
+        <h1>🧟 ZOMBIE WORLD 🧟</h1>
+        <div style="color:#eebb77; margin-bottom: 25px;">▸ вирус X-19 | зомби видят и бегут ◂</div>
+        <button class="menu-btn" id="startBtn">▶ СТАРТ</button>
+        <button class="menu-btn" id="exitMenuBtn">⛔ В МЕНЮ</button>
+        <div style="margin-top: 20px; font-size:13px; color:#aa9966;">
+            ◀ ▶ / A D — ходьба | ПРОБЕЛ / W — прыжок | 🔫 ЛКМ — стрельба<br>
+            1 — красная машина | 2 — синий мотоцикл | 3 — пешком | ESC — меню
+        </div>
+    </div>
+</div>
+
+<div class="hud" id="hudPanel" style="display: none;">
+    <div class="stat">❤️ <span id="hpVal">100</span>%</div>
+    <div class="stat">🔫 <span id="weapName">Глок</span> | урон <span id="dmgShow">18</span></div>
+    <div class="stat">🚗 <span id="vehName">Пешком</span></div>
+    <div class="stat menu-icon" id="quitInGame">⚙️ МЕНЮ</div>
+</div>
+<div id="damageFlash" class="flash"></div>
+<div id="storyBox" class="story-text">🧪 УЧЁНЫЕ СОЗДАЛИ ВИРУС X-19. МИР ПАЛ ЗА 48 ЧАСОВ. ТЫ — ПОСЛЕДНИЙ ВЫЖИВШИЙ. 🧟</div>
+
+<canvas id="gameCanvas" width="1100" height="560"></canvas>
+
+<script>
+    (function(){
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const W = 1100, H = 560;
+        let cameraX = 0;
+        const WORLD_W = 4200;
+        const GROUND_Y = H - 70;
+        
+        // платформы
+        let platforms = [
+            [0, GROUND_Y, WORLD_W, 28],
+            [500, H-170, 110, 20], [950, H-230, 90, 20], [1350, H-190, 130, 20],
+            [1850, H-280, 100, 20], [2350, H-150, 140, 20], [2850, H-300, 110, 20],
+            [3300, H-210, 120, 20], [3700, H-340, 80, 20]
+        ];
+        
+        // декоративные здания
+        let buildings = [
+            {x:650, y:H-140, w:75, h:70}, {x:1450, y:H-160, w:90, h:85}, 
+            {x:2450, y:H-180, w:100, h:100}, {x:3450, y:H-260, w:85, h:95}
+        ];
+        
+        // ----- игрок -----
+        let player = {
+            x: 250, y: GROUND_Y-48,
+            vx: 0, vy: 0, width: 32, height: 48,
+            onGround: true, facingRight: true,
+            hp: 100, maxHp: 120, invincibleTimer: 0,
+            weaponId: 1, vehicleType: 0
+        };
+        
+        const weapons = [
+            { name:"Нож", dmg:15, cooldown:18, range:50, color:"#dddddd" },
+            { name:"Глок", dmg:18, cooldown:12, range:330, color:"#ffcc55" },
+            { name:"Револьвер", dmg:44, cooldown:28, range:380, color:"orange" },
+            { name:"M4A1 ⚡", dmg:27, cooldown:5, range:350, color:"cyan" }
+        ];
+        
+        // ----- ЗОМБИ С ДВИЖЕНИЕМ И РАДИУСОМ ВИДИМОСТИ -----
+        let enemies = [];
+        
+        function createZombie(type, x, y){
+            if(type === 0){ // быстрый бегун
+                return { x, y, hp: 34, maxHp:34, dmg:11, speed:2.3, size:32, 
+                         name:"Бегун🧟", color:"#7e9a56", visionRadius: 340, 
+                         wanderAngle: Math.random()*Math.PI*2, boss:false };
+            } else if(type === 1){ // обычный
+                return { x, y, hp: 58, maxHp:58, dmg:17, speed:1.25, size:40, 
+                         name:"Зомби🧟", color:"#6e8650", visionRadius: 330,
+                         wanderAngle: Math.random()*Math.PI*2, boss:false };
+            } else { // медленный сильный
+                return { x, y, hp: 110, maxHp:110, dmg:27, speed:0.75, size:48, 
+                         name:"Тяжёлый🧟", color:"#4e683a", visionRadius: 310,
+                         wanderAngle: Math.random()*Math.PI*2, boss:false };
+            }
+        }
+        
+        // БОССЫ
+        function spawnBoss(bossId, x, y){
+            if(bossId===0){
+                enemies.push({ x, y, hp: 490, maxHp:490, dmg:42, speed:1.35, size:68, 
+                               name:"🔥 ОГНЕННЫЙ ГИГАНТ", color:"#e06a2a", boss:true, 
+                               visionRadius: 420, wanderAngle:0, bossType:"fire" });
+            } else if(bossId===1){
+                enemies.push({ x, y, hp: 520, maxHp:520, dmg:38, speed:1.2, size:72, 
+                               name:"☣️ ЯДОВИТЫЙ ГИГАНТ", color:"#7fb035", boss:true, 
+                               visionRadius: 410, wanderAngle:0, bossType:"poison" });
+            } else if(bossId===2){
+                enemies.push({ x, y, hp: 500, maxHp:500, dmg:47, speed:1.15, size:74, 
+                               name:"❄️ ЛЕДЯНОЙ ГИГАНТ", color:"#5faaff", boss:true, 
+                               visionRadius: 430, wanderAngle:0, bossType:"ice" });
+            }
+        }
+        
+        // начальные враги
+        function spawnInitialEnemies(){
+            for(let i=0;i<6;i++){
+                let type = Math.floor(Math.random()*3);
+                let x = 300 + Math.random() * (WORLD_W-600);
+                let y = GROUND_Y - 35;
+                enemies.push(createZombie(type, x, y));
+            }
+            // один босс для интереса
+            spawnBoss(0, 1800, GROUND_Y-55);
+        }
+        
+        // СПАВН ПО ТАЙМЕРУ (каждую минуту)
+        let lastSpawnTime = Date.now();
+        const SPAWN_INTERVAL = 60000; // 60 секунд
+        
+        function trySpawnTimerZombie(){
+            let now = Date.now();
+            if(now - lastSpawnTime >= SPAWN_INTERVAL){
+                lastSpawnTime = now;
+                let count = 2 + Math.floor(Math.random() * 3); // 2-4 зомби
+                for(let i=0;i<count;i++){
+                    let type = Math.floor(Math.random()*3);
+                    // спавн не прямо на игрока, а на расстоянии 350-700 пикселей
+                    let angle = Math.random() * Math.PI * 2;
+                    let dist = 380 + Math.random() * 400;
+                    let spawnX = player.x + Math.cos(angle) * dist;
+                    let spawnY = GROUND_Y - 40 + (Math.random() - 0.5) * 60;
+                    spawnX = Math.min(WORLD_W - 80, Math.max(80, spawnX));
+                    spawnY = Math.min(H - 80, Math.max(GROUND_Y - 90, spawnY));
+                    enemies.push(createZombie(type, spawnX, spawnY));
+                }
+                // небольшой шанс 20% на босса при спавне
+                if(Math.random() < 0.2){
+                    let bossType = Math.floor(Math.random()*3);
+                    let angle = Math.random() * Math.PI * 2;
+                    let dist = 500;
+                    let spawnX = player.x + Math.cos(angle) * dist;
+                    spawnX = Math.min(WORLD_W - 100, Math.max(100, spawnX));
+                    spawnBoss(bossType, spawnX, GROUND_Y-70);
+                }
+            }
+        }
+        
+        // ЛОГИКА ДВИЖЕНИЯ ВРАГОВ (видят игрока в радиусе visionRadius)
+        function moveEnemies(){
+            for(let e of enemies){
+                let dx = player.x - e.x;
+                let dy = player.y - e.y;
+                let distToPlayer = Math.hypot(dx, dy);
+                
+                let moveX = 0, moveY = 0;
+                
+                // если игрок в радиусе видимости - преследовать
+                if(distToPlayer < e.visionRadius){
+                    let angle = Math.atan2(dy, dx);
+                    let moveSpeed = e.speed;
+                    moveX = Math.cos(angle) * moveSpeed;
+                    moveY = Math.sin(angle) * moveSpeed;
+                    // боссы иногда рывок
+                    if(e.boss && Math.random()<0.02) moveX *= 1.8;
+                } else {
+                    // случайное блуждание
+                    e.wanderAngle += (Math.random() - 0.5) * 0.5;
+                    moveX = Math.cos(e.wanderAngle) * e.speed * 0.6;
+                    moveY = Math.sin(e.wanderAngle) * e.speed * 0.4;
+                }
+                
+                e.x += moveX;
+                e.y += moveY;
+                
+                // примитивная коллизия с землёй и платформами
+                let onSolid = false;
+                for(let p of platforms){
+                    if(e.y + e.size/2 > p[1] && e.y - e.size/2 < p[1]+p[3] && 
+                       e.x + e.size/2 > p[0] && e.x - e.size/2 < p[0]+p[2]){
+                        e.y = p[1] - e.size/2;
+                        onSolid = true;
+                        break;
+                    }
+                }
+                if(!onSolid && e.y + e.size/2 < GROUND_Y+40) e.y += 2.2;
+                if(e.y + e.size/2 > GROUND_Y+20) e.y = GROUND_Y - e.size/2;
+                
+                e.x = Math.min(WORLD_W - 40, Math.max(40, e.x));
+                e.y = Math.min(H - 60, Math.max(40, e.y));
+            }
+        }
+        
+        let bullets = [];
+        let lastShot = 0;
+        let lootItems = [];
+        
+        function shoot(mouseScreenX, mouseScreenY){
+            let now = Date.now();
+            let wp = weapons[player.weaponId];
+            if(now - lastShot < wp.cooldown) return;
+            lastShot = now;
+            let fromX = player.x + (player.facingRight? 28 : -10);
+            let fromY = player.y + 22;
+            let targetX = mouseScreenX + cameraX;
+            let targetY = mouseScreenY;
+            let dx = targetX - fromX;
+            let dy = targetY - fromY;
+            let len = Math.hypot(dx,dy);
+            if(len<0.01) return;
+            let vx = dx/len * 14;
+            let vy = dy/len * 14;
+            bullets.push({
+                x: fromX, y: fromY, vx, vy, dmg: wp.dmg, range: wp.range, dist:0, color:wp.color
+            });
+        }
+        
+        // физика игрока
+        function updatePlayerPhysics(){
+            const GRAV = 0.68;
+            let spd = (player.vehicleType===0? 4.9 : (player.vehicleType===1? 6.5 : 7.8));
+            let jumpP = (player.vehicleType===0? -10.8 : (player.vehicleType===1? -9.2 : -10.2));
+            let left = keys['ArrowLeft']||keys['a'];
+            let right = keys['ArrowRight']||keys['d'];
+            if(left && !right){ player.vx = -spd; player.facingRight=false; }
+            else if(right && !left){ player.vx = spd; player.facingRight=true; }
+            else player.vx *= 0.9;
+            
+            if((keys['ArrowUp']||keys['w']||keys[' ']) && player.onGround){
+                player.vy = jumpP;
+                player.onGround = false;
+            }
+            player.vy += GRAV;
+            player.x += player.vx;
+            player.y += player.vy;
+            player.onGround = false;
+            for(let p of platforms){
+                if(player.vy >=0 && player.y+player.height > p[1] && player.y+player.height < p[1]+p[3]+8 &&
+                   player.x+player.width > p[0] && player.x < p[0]+p[2]){
+                    player.y = p[1]-player.height;
+                    player.vy = 0;
+                    player.onGround = true;
+                }
+                if(player.vy<0 && player.y < p[1]+p[3] && player.y+player.height > p[1] &&
+                   player.x+player.width>p[0] && player.x<p[0]+p[2]){
+                    player.y = p[1]+p[3];
+                    player.vy = 0;
+                }
+            }
+            if(player.x<20) player.x=20;
+            if(player.x+player.width > WORLD_W-20) player.x = WORLD_W - player.width -20;
+            if(player.y> H) player.hp=0;
+            cameraX = Math.min(WORLD_W - W, Math.max(0, player.x - W/2));
+        }
+        
+        function updateCombat(){
+            if(player.invincibleTimer>0) player.invincibleTimer--;
+            for(let i=0;i<enemies.length;i++){
+                let e = enemies[i];
+                let dx = player.x - e.x;
+                let dy = player.y - e.y;
+                if(Math.abs(dx) < 42 && Math.abs(dy) < 58 && player.invincibleTimer<=0){
+                    let dmgDealt = e.dmg - (player.vehicleType===0? 0:2);
+                    player.hp -= Math.max(5, dmgDealt);
+                    player.invincibleTimer = 18;
+                    document.getElementById('hpVal').innerText = Math.max(0, Math.floor(player.hp));
+                    let flashDiv = document.getElementById('damageFlash');
+                    flashDiv.style.opacity='0.5';
+                    setTimeout(()=>flashDiv.style.opacity='0', 100);
+                    if(player.hp<=0) gameOver();
+                    let pushDir = (player.x - e.x)>0? 1:-1;
+                    player.vx += pushDir*6;
+                    player.vy = -7;
+                }
+            }
+            // пули
+            for(let i=0;i<bullets.length;i++){
+                let b = bullets[i];
+                b.x += b.vx; b.y += b.vy;
+                b.dist += Math.hypot(b.vx,b.vy);
+                if(b.x<0 || b.x>WORLD_W || b.y<0 || b.y>H || b.dist > b.range){
+                    bullets.splice(i,1); i--; continue;
+                }
+                let hitIdx = -1;
+                for(let j=0;j<enemies.length;j++){
+                    let e = enemies[j];
+                    if(Math.hypot(b.x - e.x, b.y - e.y) < e.size/2+8){
+                        hitIdx=j; break;
+                    }
+                }
+                if(hitIdx !== -1){
+                    let e = enemies[hitIdx];
+                    e.hp -= b.dmg;
+                    if(e.hp <= 0){
+                        lootItems.push({x:e.x, y:e.y-15, val: e.boss? 35 : 8});
+                        enemies.splice(hitIdx,1);
+                    }
+                    bullets.splice(i,1); i--;
+                }
+            }
+        }
+        
+        function collectLoot(){
+            for(let i=0;i<lootItems.length;i++){
+                let l = lootItems[i];
+                if(Math.hypot(player.x+16 - l.x, player.y+24 - l.y) < 35){
+                    lootItems.splice(i,1); i--;
+                }
+            }
+        }
+        
+        function gameOver(){
+            alert("💀 ВЫ УМЕРЛИ 💀\nВернуться в меню");
+            exitToMenu();
+        }
+        
+        function exitToMenu(){
+            document.getElementById('menuOverlay').style.display='flex';
+            document.getElementById('hudPanel').style.display='none';
+            gameActive = false;
+            enemies = [];
+            bullets = [];
+            player.hp = 100;
+            player.x = 250;
+            player.vehicleType=0;
+        }
+        
+        function showStory(){
+            let storyDiv = document.getElementById('storyBox');
+            storyDiv.classList.add('show');
+            setTimeout(() => {
+                storyDiv.classList.remove('show');
+            }, 5000);
+        }
+        
+        function startGame(){
+            document.getElementById('menuOverlay').style.display='none';
+            document.getElementById('hudPanel').style.display='flex';
+            gameActive = true;
+            player.hp = 100;
+            player.x = 200;
+            player.y = GROUND_Y-48;
+            player.vehicleType=0;
+            player.weaponId = 1;
+            player.invincibleTimer=0;
+            enemies = [];
+            bullets = [];
+            lootItems = [];
+            cameraX = 0;
+            spawnInitialEnemies();
+            lastSpawnTime = Date.now(); // сброс таймера спавна
+            document.getElementById('hpVal').innerText = "100";
+            document.getElementById('weapName').innerHTML = weapons[1].name;
+            document.getElementById('dmgShow').innerHTML = weapons[1].dmg;
+            updateVehicleUI();
+            showStory(); // ПОКАЗЫВАЕМ ПРЕДЫСТОРИЮ
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function updateVehicleUI(){
+            let vName = ["Пешком 🚶","Машина 🚗","Мотоцикл 🏍️"];
+            document.getElementById('vehName').innerHTML = vName[player.vehicleType];
+            if(player.vehicleType===1) player.width=40;
+            else if(player.vehicleType===2) player.width=35;
+            else player.width=32;
+        }
+        
+        function changeVehicle(id){
+            if(id===player.vehicleType) return;
+            player.vehicleType = id;
+            updateVehicleUI();
+        }
+        
+        // отрисовка
+        function draw(){
+            ctx.clearRect(0,0,W,H);
+            ctx.fillStyle="#1a3825";
+            ctx.fillRect(0,0,W,H);
+            ctx.save();
+            ctx.translate(-cameraX,0);
+            ctx.fillStyle="#5d4a32";
+            ctx.fillRect(0,GROUND_Y,WORLD_W,120);
+            for(let i=0;i<WORLD_W/45;i++){
+                ctx.fillStyle="#8b6a40";
+                ctx.fillRect(i*45, GROUND_Y-6, 25, 10);
+            }
+            for(let p of platforms){
+                ctx.fillStyle="#947a52";
+                ctx.fillRect(p[0], p[1], p[2], p[3]);
+                ctx.fillStyle="#cbaa6a";
+                ctx.fillRect(p[0]+3, p[1]-4, p[2]-6, 7);
+            }
+            for(let b of buildings){
+                ctx.fillStyle="#8a6842";
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                ctx.fillStyle="#ffbb77";
+                ctx.fillRect(b.x+15, b.y+20, 12, 25);
+            }
+            for(let l of lootItems){
+                ctx.fillStyle="gold";
+                ctx.beginPath();
+                ctx.arc(l.x, l.y, 9,0,Math.PI*2);
+                ctx.fill();
+                ctx.fillText("💊", l.x-6, l.y-5);
+            }
+            for(let e of enemies){
+                ctx.fillStyle=e.color;
+                ctx.shadowBlur=6;
+                ctx.beginPath();
+                ctx.ellipse(e.x, e.y, e.size/1.6, e.size/1.4, 0,0,Math.PI*2);
+                ctx.fill();
+                ctx.fillStyle="#221100";
+                ctx.font="bold 12px monospace";
+                ctx.fillText(e.name, e.x-22, e.y-12);
+                ctx.fillStyle="#aa3333";
+                ctx.fillRect(e.x-e.size/2, e.y-e.size/2-8, (e.hp/e.maxHp)*e.size, 6);
+                if(e.boss){
+                    ctx.fillStyle="orange";
+                    ctx.font="bold 14px";
+                    ctx.fillText("👑 БОСС", e.x-28, e.y-25);
+                }
+                // визуализация радиуса видимости (опционально, для теста)
+                // ctx.beginPath(); ctx.arc(e.x, e.y, e.visionRadius, 0, Math.PI*2); ctx.strokeStyle="red"; ctx.stroke();
+            }
+            // игрок
+            if(player.vehicleType===0){
+                ctx.fillStyle="#dba551";
+                ctx.fillRect(player.x, player.y, 30, 46);
+                ctx.fillStyle="#4c2e16";
+                ctx.fillRect(player.x+8, player.y-6, 12, 12);
+            } else if(player.vehicleType===1){
+                ctx.fillStyle="#cc4422";
+                ctx.fillRect(player.x, player.y, 48, 28);
+                ctx.fillStyle="#331100";
+                ctx.fillRect(player.x+12, player.y-5, 26, 9);
+                ctx.fillStyle="black";
+                ctx.fillRect(player.x+6, player.y+20, 9, 9);
+                ctx.fillRect(player.x+34, player.y+20, 9, 9);
+            } else {
+                ctx.fillStyle="#3388dd";
+                ctx.fillRect(player.x, player.y+14, 44, 18);
+                ctx.fillRect(player.x+28, player.y+2, 14, 14);
+                ctx.fillStyle="#2266aa";
+                ctx.beginPath();
+                ctx.arc(player.x+38, player.y+27, 9,0,2*Math.PI);
+                ctx.fill();
+                ctx.arc(player.x+8, player.y+27, 9,0,2*Math.PI);
+                ctx.fill();
+            }
+            for(let b of bullets){
+                ctx.fillStyle=b.color;
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 6,0,Math.PI*2);
+                ctx.fill();
+            }
+            ctx.restore();
+            requestAnimationFrame(draw);
+        }
+        
+        let keys = {ArrowLeft:false,ArrowRight:false,ArrowUp:false,a:false,d:false,w:false,' ':false};
+        let gameActive = false;
+        
+        function update(){
+            if(!gameActive) return;
+            updatePlayerPhysics();
+            moveEnemies();
+            updateCombat();
+            collectLoot();
+            trySpawnTimerZombie(); // проверяем каждую минуту
+            document.getElementById('hpVal').innerText = Math.floor(Math.max(0,player.hp));
+        }
+        
+        function gameLoop(){
+            update();
+            draw();
+            if(gameActive) requestAnimationFrame(gameLoop);
+        }
+        
+        canvas.addEventListener('mousedown',(e)=>{
+            if(!gameActive) return;
+            let rect = canvas.getBoundingClientRect();
+            let sx = (e.clientX - rect.left) * (W/rect.width);
+            let sy = (e.clientY - rect.top) * (H/rect.height);
+            shoot(sx, sy);
+        });
+        
+        window.addEventListener('keydown',(e)=>{
+            let k = e.key;
+            if(k==='Escape' && gameActive) exitToMenu();
+            if(k==='1') changeVehicle(1);
+            if(k==='2') changeVehicle(2);
+            if(k==='3') changeVehicle(0);
+            if(keys.hasOwnProperty(k)) keys[k]=true;
+            if(k===' ') keys[' ']=true;
+        });
+        window.addEventListener('keyup',(e)=>{
+            let k=e.key;
+            if(keys.hasOwnProperty(k)) keys[k]=false;
+            if(k===' ') keys[' ']=false;
+        });
+        
+        document.getElementById('startBtn').addEventListener('click', startGame);
+        document.getElementById('exitMenuBtn').addEventListener('click', exitToMenu);
+        document.getElementById('quitInGame').addEventListener('click', exitToMenu);
+        
+        function init(){
+            exitToMenu();
+            draw();
+        }
+        init();
+    })();
+</script>
+</body>
+</html>
